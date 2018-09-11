@@ -69,29 +69,31 @@ class SCNN(nn.Module):
         self.fc7_r2 = nn.Conv2d(4096, 4096, kernel_size=1, dilation=4)
         self.fc8_r2 = nn.Conv2d(4096, 1, kernel_size=1)
 
-        self.pool1_conv_r2 = nn.Conv2d(64, 128, kernel_size=3, padding=(1, 1))
-        self.pool1_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
-        self.pool1_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
-
-        self.pool2_conv_r2 = nn.Conv2d(128, 128, kernel_size=3, padding=(1, 1))
-        self.pool2_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
-        self.pool2_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
-
+        # self.pool1_conv_r2 = nn.Conv2d(64, 128, kernel_size=3, padding=(1, 1))
+        # self.pool1_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
+        # self.pool1_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
+        #
+        # self.pool2_conv_r2 = nn.Conv2d(128, 128, kernel_size=3, padding=(1, 1))
+        # self.pool2_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
+        # self.pool2_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
+        #
         self.pool3_conv_r2 = nn.Conv2d(256, 128, kernel_size=3, padding=(1, 1))
         self.pool3_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
         self.pool3_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
+        #
+        # self.pool4_conv_r2 = nn.Conv2d(512, 128, kernel_size=3, padding=(1, 1))
+        # self.pool4_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
+        # self.pool4_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
 
         self.pool4_conv_r2 = nn.Conv2d(512, 128, kernel_size=3, padding=(1, 1))
         self.pool4_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
         self.pool4_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
 
-        self.pool4_conv_r2 = nn.Conv2d(512, 128, kernel_size=3, padding=(1, 1))
-        self.pool4_fc_r2 = nn.Conv2d(128, 128, kernel_size=1)
-        self.pool4_ms_saliency_r2 = nn.Conv2d(128, 1, kernel_size=1)
 
 
 
-    def forward(self, input):
+
+    def forward(self, input, motion_prior):
 
         ############### R1 ###############
         x = F.relu(self.conv1_1(input))
@@ -154,7 +156,8 @@ class SCNN(nn.Module):
         saliency_predict_r1 = F.sigmoid(up_pool1 + up_pool2 + up_pool3 + up_pool4 + up_fc8)
 
         ############### R2 ###############
-        input_prior = torch.cat((x, saliency_predict_r1), 1)
+        prior = torch.mul(saliency_predict_r1, motion_prior)
+        input_prior = torch.cat((input, prior), 1)
         x_r2 = F.relu(self.conv1_1_r2(input_prior))
         x_r2 = F.relu(self.conv1_2_r2(x_r2))
         x_r2 = F.max_pool2d(x_r2, 2)
@@ -167,6 +170,8 @@ class SCNN(nn.Module):
         x_r2 = F.relu(self.conv3_2_r2(x_r2))
         x_r2 = F.relu(self.conv3_3_r2(x_r2))
         x_r2 = F.max_pool2d(x_r2, 2)
+
+        branch_pool3_r2 = x_r2.clone()
 
         x_r2 = F.relu(self.conv4_1_r2(x_r2))
         x_r2 = F.relu(self.conv4_2_r2(x_r2))
@@ -184,14 +189,19 @@ class SCNN(nn.Module):
         x_r2 = F.dropout(F.relu(self.fc7_r2(x_r2)), 0.5)
         x_r2 = self.fc8_r2(x_r2)
 
+        branch_pool3_r2 = F.dropout(F.relu(self.pool3_conv_r2(branch_pool3_r2)), 0.5)
+        branch_pool3_r2 = F.dropout(F.relu(self.pool3_fc_r2(branch_pool3_r2)), 0.5)
+        branch_pool3_r2 = self.pool3_ms_saliency_r2(branch_pool3_r2)
+
         branch_pool4_r2 = F.dropout(F.relu(self.pool4_conv_r2(branch_pool4_r2)), 0.5)
         branch_pool4_r2 = F.dropout(F.relu(self.pool4_fc_r2(branch_pool4_r2)), 0.5)
         branch_pool4_r2 = self.pool4_ms_saliency_r2(branch_pool4_r2)
 
         up_fc8_r2 = F.upsample_bilinear(x_r2, size=[512, 512])
         up_pool4_r2 = F.upsample_bilinear(branch_pool4_r2, size=[512, 512])
+        up_pool3_r2 = F.upsample_bilinear(branch_pool3_r2, size=[512, 512])
 
-        saliency_predict_r2 = up_fc8_r2 + up_pool4_r2
+        saliency_predict_r2 = up_fc8_r2 + up_pool4_r2 + up_pool3_r2
 
         return saliency_predict_r2
 
